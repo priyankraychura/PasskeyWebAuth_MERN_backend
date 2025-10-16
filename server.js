@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
@@ -12,7 +11,13 @@ const {
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+    origin: [
+        'https://passkey-web-auth-mern.vercel.app', // Primary frontend
+        'https://*.vercel.app' // Vercel preview deployments
+    ],
+    credentials: true,
+}));
 
 // In-memory storage
 const users = new Map(); // username -> user object
@@ -20,10 +25,18 @@ const authenticators = new Map(); // userId -> array of authenticators
 const challenges = new Map(); // username -> challenge (for registration)
 let loginChallenge = null; // For login challenges
 
-// Configuration
-const RP_NAME = 'Passkey Auth Demo';
-const RP_ID = 'passkey-web-auth-mern.vercel.app';
-const ORIGIN = 'https://passkey-web-auth-mern.vercel.app/';
+// Configuration - Hardcoded for deployment
+const RP_NAME = 'Passkey Web Auth MERN';
+const RP_ID = 'passkey-web-auth-mern.vercel.app'; // Frontend domain
+const ORIGIN = 'https://passkey-web-auth-mern.vercel.app'; // Frontend URL
+
+// Production validation
+if (!RP_ID.includes('.')) {
+    throw new Error('RP_ID must be frontend domain in production');
+}
+if (!ORIGIN.startsWith('https://')) {
+    throw new Error('ORIGIN must be HTTPS (frontend URL) in production');
+}
 
 // Utility to convert base64url to buffer
 function base64urlToBuffer(base64url) {
@@ -40,6 +53,24 @@ function bufferToBase64url(buffer) {
         .replace(/\//g, '_')
         .replace(/=/g, '');
 }
+
+// Root route to prevent "Cannot GET /" error
+app.get('/', (req, res) => {
+    res.json({
+        status: 'ok',
+        message: 'Passkey WebAuthn MERN Backend API',
+        endpoints: {
+            register: '/api/register/options',
+            verifyRegistration: '/api/register/verify',
+            login: '/api/login/options',
+            verifyLogin: '/api/login/verify',
+            health: '/api/health',
+            debug: '/api/debug/:username'
+        },
+        frontend: 'https://passkey-web-auth-mern.vercel.app',
+        version: '1.0.0'
+    });
+});
 
 /**
  * REGISTRATION - Step 1: Generate Options
@@ -126,7 +157,7 @@ app.post('/api/register/verify', async (req, res) => {
 
         const userIdBase64url = bufferToBase64url(user.id);
         
-        // Extract credential data for storage
+        // Extract credential data
         const credentialID = registrationInfo.credential.id; // base64url string
         const rawPublicKey = registrationInfo.credential.publicKey; // Uint8Array
         const counter = registrationInfo.credential.counter ?? 0;
@@ -137,7 +168,7 @@ app.post('/api/register/verify', async (req, res) => {
 
         const userAuthenticators = authenticators.get(userIdBase64url) || [];
         
-        // Store in format for verifyAuthenticationResponse (v11+ expects 'credential' with id as string, publicKey as Uint8Array/Buffer)
+        // Store in format for verifyAuthenticationResponse
         const newAuthenticator = {
             id: credentialID, // base64url string
             publicKey: credPubKeyBuffer, // Buffer (raw public key bytes)
@@ -180,7 +211,13 @@ app.post('/api/login/options', async (req, res) => {
 
         loginChallenge = options.challenge;
 
-        console.log('[LOGIN] Generated authentication options');
+        console.log('[LOGIN] Generated authentication options (discoverable)');
+        console.log('[LOGIN] Options:', {
+            rpID: options.rpID,
+            hasAllowCredentials: !!options.allowCredentials,
+            userVerification: options.userVerification
+        });
+
         res.json(options);
     } catch (error) {
         console.error('[LOGIN] Error generating options:', error);
@@ -232,7 +269,7 @@ app.post('/api/login/verify', async (req, res) => {
             return res.status(400).json({ error: 'No authenticators found for user' });
         }
 
-        // Find matching authenticator by comparing base64url id strings
+        // Find matching authenticator
         console.log('[LOGIN] Looking for credential ID:', credential.id);
 
         const authenticator = userAuthenticators.find(auth => 
@@ -255,12 +292,12 @@ app.post('/api/login/verify', async (req, res) => {
             counter: authenticator.counter
         });
 
-        // Create credential object for v11+ verifyAuthenticationResponse
+        // Create credential object for verification
         const credentialForVerification = {
-            id: authenticator.id, // base64url string
-            publicKey: authenticator.publicKey, // Buffer (raw public key bytes)
-            counter: authenticator.counter, // Number
-            transports: authenticator.transports // Array or undefined
+            id: authenticator.id,
+            publicKey: authenticator.publicKey,
+            counter: Number(authenticator.counter),
+            transports: authenticator.transports
         };
 
         console.log('[LOGIN] Verification attempt with:', {
@@ -272,13 +309,13 @@ app.post('/api/login/verify', async (req, res) => {
             counterValue: credentialForVerification.counter
         });
 
-        // Verify authentication using 'credential' parameter (v11+)
+        // Verify authentication
         const verification = await verifyAuthenticationResponse({
             response: credential,
             expectedChallenge: loginChallenge,
             expectedOrigin: ORIGIN,
             expectedRPID: RP_ID,
-            credential: credentialForVerification // Changed from 'authenticator' to 'credential'
+            credential: credentialForVerification
         });
 
         const { verified, authenticationInfo } = verification;
@@ -326,7 +363,7 @@ app.get('/api/health', (req, res) => {
     res.json(stats);
 });
 
-// Debug endpoint to inspect stored authenticators
+// Debug endpoint
 app.get('/api/debug/:username', (req, res) => {
     const { username } = req.params;
     const user = users.get(username);
@@ -350,10 +387,11 @@ app.get('/api/debug/:username', (req, res) => {
     });
 });
 
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-    console.log(`✅ Server running on http://localhost:${PORT}`);
+    console.log(`✅ Server running on port ${PORT}`);
     console.log(`📝 RP ID: ${RP_ID}`);
     console.log(`🌐 Origin: ${ORIGIN}`);
+    console.log(`🔗 Backend: https://passkeywebauth-mern-backend.onrender.com`);
     console.log(`🔍 Debug: GET /api/debug/{username}`);
 });
