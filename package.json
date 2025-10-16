@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@simplewebauthn/server": "^13.2.2",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "nodemon": "^3.1.10"
+  }
+}
