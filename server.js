@@ -22,8 +22,8 @@ let loginChallenge = null; // For login challenges
 
 // Configuration
 const RP_NAME = 'Passkey Auth Demo';
-const RP_ID = 'localhost';
-const ORIGIN = 'http://localhost:5173';
+const RP_ID = 'passkey-web-auth-mern.vercel.app';
+const ORIGIN = 'https://passkey-web-auth-mern.vercel.app/';
 
 // Utility to convert base64url to buffer
 function base64urlToBuffer(base64url) {
